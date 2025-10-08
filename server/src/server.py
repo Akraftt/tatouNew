@@ -745,6 +745,11 @@ def create_app():
         return jsonify({"methods": methods, "count": len(methods)}), 200
         
     # POST /api/read-watermark
+    # ------------------------------------------------------------------------------------------------------------------
+    # ------------------------------------------------------------------------------------------------------------------
+
+
+
     @app.post("/api/read-watermark")
     @app.post("/api/read-watermark/<int:document_id>")
     @require_auth
@@ -776,15 +781,18 @@ def create_app():
             return jsonify({"error": "method, and key are required"}), 400
 
         # lookup the document; FIXME enforce ownership
+        # WHERE id = :id replaced by: WHERE id = :id AND ownerid = :uid
+        # {"id": doc_id}, replaced by: {"id": doc_id, "uid": int(g.user["id"])},
+
         try:
             with get_engine().connect() as conn:
                 row = conn.execute(
                     text("""
                         SELECT id, name, path
                         FROM Documents
-                        WHERE id = :id
+                        WHERE id = :id AND ownerid = :uid
                     """),
-                    {"id": doc_id},
+                    {"id": doc_id, "uid": int(g.user["id"])},
                 ).first()
         except Exception as e:
             return jsonify({"error": f"database error: {str(e)}"}), 503
@@ -823,6 +831,10 @@ def create_app():
 
     register_rmap_routes(app, get_engine)
     return app
+
+# ------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------
     
 # WSGI entrypoint
 app = create_app()

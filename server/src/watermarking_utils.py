@@ -157,6 +157,185 @@ class AntonEOF(WatermarkingMethod):
         return "Embeds '%ANTONWM <base64(secret)> <hmac-hex>' just before %%EOF; HMAC key = provided key."
 
 
+# --------------------
+# New beter EOF
+# --------------------
+#
+# --------------------
+
+class BetterEOF(WatermarkingMethod):
+    """
+    Insert a signed+encrypted payload just before the final %%EOF.
+
+    Marker:
+        %WM2:v1
+        <base64url(JSON)>
+
+    Payload JSON (compact):
+        {"v":1,"alg":"HMAC-SHA256","doc":"<sha256hex>","nonce":"<b64>","ct":"<b64>","mac":"<hex>"}
+
+    - doc  = SHA256 of the PDF 'head' bytes (everything before the marker start)
+    - nonce= 16 random bytes
+    - ct   = secret XOR keystream(HMAC-SHA256) with (key, "wm2:enc:"+nonce+counter)
+    - mac  = HMAC-SHA256(key, b"wm2:v1:" + doc_hash_bytes + nonce + ct)
+    """
+
+    name: str = "BetterEOF"
+    _MAGIC_LINE: Final[bytes] = b"%WM2:v1\n"
+
+    def _sha256(self, b: bytes) -> bytes:
+        return hashlib.sha256(b).digest()
+
+    def _b64u(self, b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+    def _b64u_dec(self, s: str) -> bytes:
+        # add padding back for urlsafe base64
+        pad = "=" * ((4 - (len(s) % 4)) % 4)
+        return base64.urlsafe_b64decode(s + pad)
+
+    def _keystream(self, key: bytes, nonce: bytes, nbytes: int) -> bytes:
+        """Generate nbytes of keystream using HMAC-SHA256 blocks."""
+        out = bytearray()
+        counter = 0
+        while len(out) < nbytes:
+            blk = hmac.new(key, b"wm2:enc:" + nonce + counter.to_bytes(4, "big"), hashlib.sha256).digest()
+            out.extend(blk)
+            counter += 1
+        return bytes(out[:nbytes])
+
+    def _insert_before_eof(self, data: bytes, block: bytes) -> tuple[bytes, int]:
+        """Insert block before the final %%EOF; return (new_bytes, head_len_before_block)."""
+        idx = data.rfind(b"%%EOF")
+        if idx == -1:
+            # Treat end as EOF; append our block then %%EOF\n
+            head = data
+            if not head.endswith(b"\n"):
+                head += b"\n"
+            start = len(head)
+            out = head + block + b"%%EOF\n"
+            return out, start
+        head = data[:idx]
+        tail = data[idx:]  # starts with %%EOF
+        if not head.endswith(b"\n"):
+            head += b"\n"
+        start = len(head)
+        out = head + block + tail
+        return out, start
+
+    # --- WatermarkingMethod API ---
+
+    def is_watermark_applicable(self, pdf: PdfSource, position: str | None = None) -> bool:
+        try:
+            data = load_pdf_bytes(pdf)
+        except Exception:
+            return False
+        return data.startswith(b"%PDF-")
+
+    def add_watermark(
+        self,
+        pdf: PdfSource,
+        secret: str,
+        key: str,
+        position: str | None = None,
+    ) -> bytes:
+        if not isinstance(secret, str) or not secret:
+            raise ValueError("secret must be a non-empty string")
+        if not isinstance(key, str) or not key:
+            raise ValueError("key must be a non-empty string")
+
+        data = load_pdf_bytes(pdf)
+        # Build encryption inputs
+        nonce = os.urandom(16)
+        sec_bytes = secret.encode("utf-8")
+        ks = self._keystream(key.encode("utf-8"), nonce, len(sec_bytes))
+        ct = bytes(a ^ b for a, b in zip(sec_bytes, ks))
+
+        # Prepare doc binding and MAC
+        # We will insert: MAGIC + b64url(JSON) + "\n"
+        # Compute the head hash over bytes before the MAGIC start.
+        # First, assemble a dummy block to measure start index:
+        dummy_payload = b"{}"  # temporary; we only need placement to compute doc hash
+        dummy_block = self._MAGIC_LINE + dummy_payload + b"\n"
+        _, start = self._insert_before_eof(data, dummy_block)
+        doc_hash = self._sha256(data[:start])
+
+        mac = hmac.new(
+            key.encode("utf-8"),
+            b"wm2:v1:" + doc_hash + nonce + ct,
+            hashlib.sha256,
+        ).hexdigest()
+
+        obj = {
+            "v": 1,
+            "alg": "HMAC-SHA256",
+            "doc": doc_hash.hex(),
+            "nonce": self._b64u(nonce),
+            "ct": self._b64u(ct),
+            "mac": mac,
+        }
+        j = json.dumps(obj, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        block = self._MAGIC_LINE + base64.urlsafe_b64encode(j) + b"\n"
+
+        out, _ = self._insert_before_eof(data, block)
+        return out
+
+    def read_secret(self, pdf: PdfSource, key: str) -> str:
+        if not isinstance(key, str) or not key:
+            raise ValueError("key must be a non-empty string")
+
+        data = load_pdf_bytes(pdf)
+        # Find marker line near the end
+        tail = data[-16384:] if len(data) > 16384 else data
+        idx = tail.rfind(self._MAGIC_LINE)
+        if idx == -1:
+            raise ValueError("BetterEOFv1: marker not found")
+
+        # Convert to absolute index in data
+        abs_marker = len(data) - len(tail) + idx
+        # Compute the head hash over bytes before marker start
+        doc_hash = self._sha256(data[:abs_marker])
+
+        # The payload line is immediately after MAGIC until next '\n'
+        start = abs_marker + len(self._MAGIC_LINE)
+        end = data.find(b"\n", start)
+        if end == -1:
+            end = len(data)
+        b64_payload = data[start:end].strip()
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(b64_payload))
+            if not (isinstance(payload, dict) and payload.get("v") == 1 and payload.get("alg") == "HMAC-SHA256"):
+                raise ValueError("BetterEOFv1: unsupported payload")
+            doc_hex = str(payload["doc"])
+            nonce = self._b64u_dec(str(payload["nonce"]))
+            ct = self._b64u_dec(str(payload["ct"]))
+            mac_hex = str(payload["mac"])
+        except Exception as exc:
+            raise ValueError("BetterEOFv1: malformed payload") from exc
+
+        if doc_hex.lower() != doc_hash.hex():
+            raise ValueError("BetterEOFv1: document binding failed")
+
+        expected = hmac.new(
+            key.encode("utf-8"),
+            b"wm2:v1:" + bytes.fromhex(doc_hex) + nonce + ct,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(mac_hex, expected):
+            raise ValueError("BetterEOFv1: MAC verification failed")
+
+        # Decrypt
+        ks = self._keystream(key.encode("utf-8"), nonce, len(ct))
+        sec_bytes = bytes(a ^ b for a, b in zip(ct, ks))
+        return sec_bytes.decode("utf-8")
+
+    @staticmethod
+    def get_usage() -> str:
+        return (
+            "Inserts '%WM2:v1\\n<base64url(JSON)>' just before %%EOF. "
+            "Payload is encrypted (XOR+HMAC) and bound to the PDF via SHA256(head). "
+            "Key is required to authenticate & decrypt."
+        )
 
 # --------------------
 # Method registry
@@ -165,7 +344,8 @@ class AntonEOF(WatermarkingMethod):
 METHODS: Dict[str, WatermarkingMethod] = {
     AddAfterEOF.name: AddAfterEOF(),
     UnsafeBashBridgeAppendEOF.name: UnsafeBashBridgeAppendEOF(),
-    AntonEOF.name: AntonEOF(),  # <-- your personal method
+    AntonEOF.name: AntonEOF(),
+    BetterEOF.name: BetterEOF(),
 }
 """Registry of available watermarking methods.
 
@@ -316,7 +496,6 @@ def explore_pdf(pdf: PdfSource) -> Dict[str, Any]:
         doc.close()
         return root
     except Exception:
-        # Fallback: regex-based object scanning (no third-party deps)
         pass
 
     # Regex fallback: enumerate uncompressed objects
@@ -353,6 +532,10 @@ def explore_pdf(pdf: PdfSource) -> Dict[str, Any]:
 
     root["children"] = children
     return root
+
+
+
+
 
 
 __all__ = [

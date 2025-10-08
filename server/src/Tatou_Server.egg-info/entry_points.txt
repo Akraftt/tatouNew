@@ -1,0 +1,2 @@
+[console_scripts]
+pdfwm = watermarking_cli:main

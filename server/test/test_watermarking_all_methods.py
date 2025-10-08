@@ -15,8 +15,10 @@ except Exception:  # registry/module missing
 
 CASES: list[tuple[str, object]] = []
 for name, impl in (METHODS or {}).items():
-    if not name == "UnsafeBashBridgeAppendEOF":
-        CASES.append((str(name), impl))
+    if name == "bash-bridge-eof":
+        continue
+    CASES.append((str(name), impl))
+
 
 if not CASES:
     pytest.skip("No watermarking methods registered in watermarking_utils.METHODS", allow_module_level=True)

@@ -1,0 +1,16 @@
+pyproject.toml
+src/add_after_eof.py
+src/rmap_service.py
+src/server.py
+src/unsafe_bash_bridge_append_eof.py
+src/watermarking_cli.py
+src/watermarking_method.py
+src/watermarking_utils.py
+src/Tatou_Server.egg-info/PKG-INFO
+src/Tatou_Server.egg-info/SOURCES.txt
+src/Tatou_Server.egg-info/dependency_links.txt
+src/Tatou_Server.egg-info/entry_points.txt
+src/Tatou_Server.egg-info/requires.txt
+src/Tatou_Server.egg-info/top_level.txt
+test/test_api.py
+test/test_watermarking_all_methods.py

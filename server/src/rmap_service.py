@@ -32,7 +32,8 @@ def register_rmap_routes(app, get_engine):
         )
         rmap = RMAP(im)
     except Exception as exc:
-        current_app.logger.error("Failed to initialize RMAP: %s", exc)
+        #current_app.logger.error("Failed to initialize RMAP: %s", exc)
+        app.logger.error("Failed to initialize RMAP: %s", exc)
         im = None
         rmap = None
 
@@ -47,13 +48,15 @@ def register_rmap_routes(app, get_engine):
         except (ValidationError, DecryptionError, EncryptionError, IdentityManagerError) as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
-            current_app.logger.exception("rmap-initiate failed")
+            #current_app.logger.exception("rmap-initiate failed")
+            app.logger.exception("rmap-initiate failed")
             return jsonify({"error": f"internal error: {exc}"}), 500
-
+        
     @app.post("/api/rmap-get-link")
     def rmap_get_link():
         """
         Accepts Message 2; creates a watermarked PDF and DB row; returns {"result":"<32-hex>"}.
+        (Source document is fixed by RMAP_SOURCE_DOC_ID, as per course spec.)
         """
         if rmap is None or im is None:
             return jsonify({"error": "RMAP service unavailable"}), 503
@@ -65,9 +68,13 @@ def register_rmap_routes(app, get_engine):
             return jsonify({"error": "server misconfigured: set RMAP_SOURCE_DOC_ID and RMAP_WM_KEY"}), 503
 
         try:
+            WM.get_method(best_method)
+        except KeyError:
+            return jsonify({"error": f"unknown watermarking method: {best_method}"}), 500
+
+        try:
             payload = _read_payload_b64()
 
-            # Decrypt to get nonceServer and locate identity
             obj = im.decrypt_for_server(payload)
             if not isinstance(obj, dict) or "nonceServer" not in obj:
                 return jsonify({"error": "invalid payload: missing nonceServer"}), 400
@@ -81,13 +88,11 @@ def register_rmap_routes(app, get_engine):
             if not identity:
                 return jsonify({"error": "nonceServer does not match any pending session"}), 400
 
-            # Let the library produce the 32-hex session secret
             final = rmap.handle_message2({"payload": payload})
             if "result" not in final:
                 return jsonify(final), 400
-            link_token = final["result"]
+            link_token = final["result"]  
 
-            # Lookup source document path
             with get_engine().connect() as conn:
                 row = conn.execute(
                     text("SELECT id, name, path FROM Documents WHERE id = :id LIMIT 1"),
@@ -108,7 +113,6 @@ def register_rmap_routes(app, get_engine):
             if not src_path.exists():
                 return jsonify({"error": "file missing on disk"}), 410
 
-            # Watermark secret binds identity + session
             secret = f"identity={identity};session={link_token}"
             wm_bytes = WM.apply_watermark(
                 method=best_method,
@@ -126,7 +130,6 @@ def register_rmap_routes(app, get_engine):
             with dest_path.open("wb") as fh:
                 fh.write(wm_bytes)
 
-            # Persist in Versions (link is the session secret)
             with get_engine().begin() as conn:
                 conn.execute(
                     text("""
@@ -149,5 +152,6 @@ def register_rmap_routes(app, get_engine):
         except (ValidationError, DecryptionError) as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:
-            current_app.logger.exception("rmap-get-link failed")
+            app.logger.exception("rmap-get-link failed")
             return jsonify({"error": f"internal error: {exc}"}), 500
+

@@ -132,3 +132,73 @@ print("Saved:", out.resolve())
 Set-Content -Path .\client_group50.py -Value $py -Encoding UTF8
 
 py -3 .\client_group50.py
+
+------------------------------------------------------------------------------------------------------------------------
+
+
+PS C:\Users\Anton\sec\tatou> py -3 .\client_rmap.py `
+>>   -u http://127.0.0.1:5000 `
+>>   -i Group_50 `
+>>   -s "C:\Users\Anton\sec\tatou\secrets\server_pub.asc" `
+>>   -k "C:\Users\Anton\Desktop\Group_50_private.asc" `
+>>   -u http://127.0.0.1:5000 `
+
+
+
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------------
+
+SECURITY FIXES
+
+1. Issue: 
+Missing ownership enforcement in read-watermark allowed authenticated users to read secrets from documents they do not own.
+2. Where: 
+server/src/server.py
+SELECT id, name, path FROM Documents WHERE id = :id
+3. Severity: 
+High. Any logged in user on VLAN could enumrate document ids and rcover watermarks or error messages.
+4. Fix:
+SELECT id, name, path FROM Documents
+WHERE id = :id AND ownerid = :uid
+5. Test:
+
+1. Step: Create two users and a token such as:
+$u1 = @{ email="alice@example.com"; login="alice"; password="alicepw" } | ConvertTo-Json
+$null = Invoke-RestMethod -Uri http://127.0.0.1:5000/api/create-user -Method POST -Body $u1 -ContentType "application/json"
+$u1login = @{ email="alice@example.com"; password="alicepw" } | ConvertTo-Json
+$u1tok = (Invoke-RestMethod -Uri http://127.0.0.1:5000/api/login -Method POST -Body $u1login -ContentType "application/json").token
+
+$u2 = @{ email="bob@example.com"; login="bob"; password="bobpw" } | ConvertTo-Json
+$null = Invoke-RestMethod -Uri http://127.0.0.1:5000/api/create-user -Method POST -Body $u2 -ContentType "application/json"
+$u2login = @{ email="bob@example.com"; password="bobpw" } | ConvertTo-Json
+$u2tok = (Invoke-RestMethod -Uri http://127.0.0.1:5000/api/login -Method POST -Body $u2login -ContentType "application/json").token
+
+2. Step: Create a PDF.
+[IO.File]::WriteAllBytes("$PWD\alice.pdf",[Convert]::FromBase64String("JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyA+PgplbmRvYmoKJSVFT0YK"))
+
+3. Step: Upload the PDF as Alice.
+$uri = "http://127.0.0.1:5000/api/upload-document"
+$hdr = "Authorization: Bearer $u1tok"
+$json = & curl.exe -s -H "$hdr" -F "file=@`"$PWD\alice.pdf`";type=application/pdf" -F "name=alice.pdf" $uri
+$json
+$docA = $json | ConvertFrom-Json
+$docId = [int]$docA.id
+$docId
+
+4. Step: Try to access the PDF as Bob, Expected outcome: 404 {"error":"document not found"}
+$rwBody = @{ method="anton-eof"; key="course-demo-key"; position="" } | ConvertTo-Json
+try {
+  Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/read-watermark/$docId" -Method POST -Headers @{ Authorization = "Bearer $u2tok" } -Body $rwBody -ContentType "application/json"
+} catch {
+  $_.Exception.Response.StatusCode.value__       # expect 404
+  $_.ErrorDetails.Message                        # should contain "document not found"
+}
+
+5. Try to access it as Alice, Expected outcome: 400
+try {
+  Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/read-watermark/$docId" -Method POST -Headers @{ Authorization = "Bearer $u1tok" } -Body $rwBody -ContentType "application/json"
+} catch {
+  $_.Exception.Response.StatusCode.value__       # expect 400
+}

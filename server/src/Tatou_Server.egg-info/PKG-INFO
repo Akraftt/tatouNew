@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: Tatou-Server
+Version: 0.0.1
+Summary: PDF Watermarking platform
+Requires-Python: >=3.11
+Requires-Dist: PyMuPDF>=1.21.1
+Requires-Dist: Flask==3.0.3
+Requires-Dist: gunicorn==21.2.0
+Requires-Dist: PyMySQL==1.1.2
+Requires-Dist: SQLAlchemy==2.0.43
+Requires-Dist: dill==0.4.0
+Requires-Dist: rmap@ git+https://github.com/nharrand/RMAP-Server.git@v1.0.0
+Requires-Dist: pgpy>=0.6.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
