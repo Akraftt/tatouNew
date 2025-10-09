@@ -42,11 +42,17 @@ def main():
 
     server_pub  = load_key(args.server_pub)
     client_priv = load_key(args.client_priv)
-
-    # Unlock private key if protected
-    if getattr(client_priv, "is_protected", False):
-        pw = args.passphrase or getpass.getpass("Key passphrase: ")
+    import getpass
+    pw = args.passphrase or getpass.getpass("Key passphrase: ")
+    try:
         client_priv.unlock(pw)
+    except Exception:
+        pass
+    for sk in getattr(client_priv, "subkeys", {}).values():
+        try:
+            sk.unlock(pw)
+        except Exception:
+            pass
 
     nc = secrets.randbits(64)
     r1 = post(args.base, "/api/rmap-initiate", {
@@ -61,7 +67,6 @@ def main():
     url = f"{args.base}/api/get-version/{token}"
     print("TOKEN=" + token)
     print("URL=" + url)
-
     if args.out:
         with urllib.request.urlopen(url) as resp:
             open(args.out, "wb").write(resp.read())
