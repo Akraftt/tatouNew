@@ -7,7 +7,7 @@ except Exception:
     import types
     imghdr = types.SimpleNamespace(what=lambda *a, **k: None)  # noqa
 
-import argparse, os, json, base64, urllib.request, secrets
+import argparse, os, json, base64, urllib.request, secrets, getpass
 from pgpy import PGPKey, PGPMessage
 
 def load_key(path):
@@ -36,11 +36,17 @@ def main():
     ap.add_argument("-i", "--identity", required=True)
     ap.add_argument("-s", "--server-pub", required=True)
     ap.add_argument("-k", "--client-priv", required=True)
+    ap.add_argument("-p", "--passphrase", help="passphrase for the client private key (omit to be prompted)")
     ap.add_argument("-o", "--out")
     args = ap.parse_args()
 
     server_pub  = load_key(args.server_pub)
     client_priv = load_key(args.client_priv)
+
+    # Unlock private key if protected
+    if getattr(client_priv, "is_protected", False):
+        pw = args.passphrase or getpass.getpass("Key passphrase: ")
+        client_priv.unlock(pw)
 
     nc = secrets.randbits(64)
     r1 = post(args.base, "/api/rmap-initiate", {
