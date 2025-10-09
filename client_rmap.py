@@ -30,6 +30,19 @@ def decrypt_from_server(client_priv, b64payload):
     dec = client_priv.decrypt(PGPMessage.from_blob(arm))
     return json.loads(dec.message)
 
+def _unlock_all(key, pw: str):
+    # Try primary
+    try:
+        key.unlock(pw)
+    except Exception:
+        pass
+    # Try all subkeys
+    for sk in getattr(key, "subkeys", {}).values():
+        try:
+            sk.unlock(pw)
+        except Exception:
+            pass
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-u", "--base", default="http://127.0.0.1:5000")
@@ -38,21 +51,22 @@ def main():
     ap.add_argument("-k", "--client-priv", required=True)
     ap.add_argument("-p", "--passphrase", help="passphrase for the client private key (omit to be prompted)")
     ap.add_argument("-o", "--out")
+    ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
     server_pub  = load_key(args.server_pub)
     client_priv = load_key(args.client_priv)
-    import getpass
+
+    if client_priv.is_public:
+        raise SystemExit("error: -k must point to your *private* key (.asc) — got a public key")
+
     pw = args.passphrase or getpass.getpass("Key passphrase: ")
-    try:
-        client_priv.unlock(pw)
-    except Exception:
-        pass
-    for sk in getattr(client_priv, "subkeys", {}).values():
-        try:
-            sk.unlock(pw)
-        except Exception:
-            pass
+    _unlock_all(client_priv, pw)
+
+    if args.debug:
+        print(f"[dbg] primary unlocked? {getattr(client_priv, 'is_unlocked', False)}")
+        for kid, sk in getattr(client_priv, 'subkeys', {}).items():
+            print(f"[dbg] subkey {kid} unlocked? {getattr(sk, 'is_unlocked', False)}")
 
     nc = secrets.randbits(64)
     r1 = post(args.base, "/api/rmap-initiate", {
@@ -71,6 +85,7 @@ def main():
         with urllib.request.urlopen(url) as resp:
             open(args.out, "wb").write(resp.read())
         print("Saved:", os.path.abspath(args.out))
+
 
 if __name__ == "__main__":
     main()
