@@ -25,9 +25,10 @@ def encrypt_for_server(server_pub, obj):
     enc = server_pub.encrypt(msg)
     return base64.b64encode(str(enc).encode()).decode()
 
-def decrypt_from_server(client_priv, b64payload):
+def decrypt_from_server(client_priv, b64payload, pw: str):
     arm = base64.b64decode(b64payload)
-    dec = client_priv.decrypt(PGPMessage.from_blob(arm))
+    with client_priv.unlock(pw):
+        dec = client_priv.decrypt(PGPMessage.from_blob(arm))
     return json.loads(dec.message)
 
 def _unlock_all(key, pw: str):
@@ -72,7 +73,7 @@ def main():
     r1 = post(args.base, "/api/rmap-initiate", {
         "payload": encrypt_for_server(server_pub, {"nonceClient": int(nc), "identity": args.identity})
     })
-    ns = int(decrypt_from_server(client_priv, r1["payload"])["nonceServer"])
+    ns = int(decrypt_from_server(client_priv, r1["payload"], pw)["nonceServer"])
 
     r2 = post(args.base, "/api/rmap-get-link", {
         "payload": encrypt_for_server(server_pub, {"nonceServer": ns})
