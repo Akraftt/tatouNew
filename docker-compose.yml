@@ -12,7 +12,7 @@ services:
       - STORAGE_DIR=/app/storage
       - RMAP_METHOD=BetterEOF
       - RMAP_WM_KEY=course-demo-key
-      - RMAP_SOURCE_DOC_ID=10
+      - RMAP_SOURCE_DOC_ID=2
       - RMAP_CLIENT_KEYS_DIR=/app/secrets/clients
       - RMAP_SERVER_PUB=/app/secrets/server_pub.asc
       - RMAP_SERVER_PRIV=/app/secrets/server_priv.asc
