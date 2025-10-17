@@ -34,10 +34,10 @@ services:
     image: mariadb:11.4
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
-      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=pass123
       - MARIADB_DATABASE=tatou
-      - MARIADB_USER=${MARIADB_USER}
-      - MARIADB_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_USER=tatou
+      - MARIADB_PASSWORD=pass123
     volumes:
       - db-data:/var/lib/mysql
       - ./db/tatou.sql:/docker-entrypoint-initdb.d/10-tatou.sql:ro
