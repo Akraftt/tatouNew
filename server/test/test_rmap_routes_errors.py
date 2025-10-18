@@ -97,6 +97,9 @@ def make_app(monkeypatch,
         app.config["STORAGE_DIR"] = env["STORAGE_DIR"]
     return app
 
+def _fresh_app_with(monkeypatch, env, select_row=None, im_ret=None, nonces=None):
+    return make_app(monkeypatch, env, select_row=select_row, im_ret=im_ret, nonces=nonces)
+
 # -----------------------------------------------------------------------------------------------
 # -------------------------------------- THE TESTS ----------------------------------------------
 # -----------------------------------------------------------------------------------------------
