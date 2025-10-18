@@ -116,3 +116,71 @@ def test_extract_wrong_key_returns_exit4(tmp_path, capsys):
         "--key", "B",
     ])
     assert code2 == 4
+
+# new test for methods that also includes betterEOF, could have updated the old one but need pratice making tests
+def test_methods_also_lists_betterEOF(capsys):
+    # Arrange and act
+    code = cli.main(["methods"])
+    out = capsys.readouterr().out
+    # Assert
+    assert code == 0
+    assert "BetterEOF" in out 
+
+# calls explore on a file that dosnt exist
+def test_explore_missing_file(capsys, tmp_path):
+    missing = tmp_path / "NotaPDF.pdf"
+    code = cli.main(["explore", str(missing)])
+    assert code != 0
+
+# tries to run embed with a unkown/made up method nae
+def test_embed_unknown_method(tmp_path):
+    inp = _mk_min_pdf(tmp_path)
+    outp = tmp_path / "out.pdf"
+    with pytest.raises(KeyError):
+        cli.main([
+            "embed", str(inp), str(outp),
+            "--method", "no-such-method",
+            "--key", "k",
+            "--secret", "s",
+        ])
+
+# runs extract on the miimal pdf with the watermarking method ive done with no secret
+def test_extract_on_pdf_without_secret(tmp_path, capsys):
+    inp = _mk_min_pdf(tmp_path)
+    code = cli.main([
+        "extract", str(inp),
+        "--method", "anton-eof",
+        "--key", "k",
+    ])
+    assert code != 0
+
+
+# basically a full blown tests that embeds secret then extract
+# this should suceed and match 
+def test_embed_and_extract_bettereof(tmp_path, capsys):
+    # Arrange
+    inp = _mk_min_pdf(tmp_path)
+    outp = tmp_path / "outbetter.pdf"
+
+    # Act
+    c1 = cli.main([
+        "embed", str(inp), str(outp),
+        "--method", "BetterEOF",
+        "--key", "course-demo-key",
+        "--secret", "hello",
+    ])
+    # Assert 
+    assert c1 == 0 and outp.exists()
+    capsys.readouterr()
+
+    # Act
+    c2 = cli.main([
+        "extract", str(outp),
+        "--method", "BetterEOF",
+        "--key", "course-demo-key",
+    ])
+    out = capsys.readouterr().out.strip()
+
+    # Assert
+    assert c2 == 0
+    assert out == "hello"
