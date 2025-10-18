@@ -3,6 +3,8 @@ import types
 import importlib
 from pathlib import Path
 import rmap_service as rmap_mod
+from flask import Flask
+import uuid
 
 # -----------------------------------------------------------------------------------------------
 # ------------------------------------ FAKE CLASSES ---------------------------------------------
@@ -66,35 +68,36 @@ def make_app(monkeypatch,
              select_row=None, 
              im_ret=None, 
              nonces=None):
-    
-    # 1. the env
+    # Arrange environment vars this test needs
     for k, v in env.items():
         monkeypatch.setenv(k, str(v))
 
-    # 2) swap real deps with fakes
+    # Swap real deps with fakes
     monkeypatch.setattr(rmap_mod, "IdentityManager", FakeIM, raising=True)
     monkeypatch.setattr(rmap_mod, "RMAP", FakeRMAP, raising=True)
 
-    # 3) configure fakes
+    # Configure fakes (optional: store if you later want to inspect them)
     im_instance = FakeIM()
     im_instance._ret = im_ret if im_ret is not None else {}
     rmap = FakeRMAP(im_instance)
     if nonces is not None:
         rmap.nonces = dict(nonces)
 
-    # 4) fake engine
+    # Fake engine for DB
     engine = FakeEngine(select_row=select_row)
     def get_engine():
         return engine
 
-    # 5) create app
-    from server import create_app  # if you have a factory
-    app = create_app()
+    # Build a brand-new bare Flask app (avoid server.create_app)
+    app = Flask("testapp_" + uuid.uuid4().hex)
+
+    # Minimal config needed by rmap_service
+    # STORAGE_DIR: use provided or a safe default
+    app.config["STORAGE_DIR"] = env.get("STORAGE_DIR", "/tmp")
+
+    # Register only the RMAP routes we’re testing
     rmap_mod.register_rmap_routes(app, get_engine)
 
-    # allow overriding STORAGE_DIR from env for tests
-    if "STORAGE_DIR" in env:
-        app.config["STORAGE_DIR"] = env["STORAGE_DIR"]
     return app
 
 def _fresh_app_with(monkeypatch, env, select_row=None, im_ret=None, nonces=None):
