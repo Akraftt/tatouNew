@@ -57,7 +57,34 @@ For phase two there were a couple of main things we were supposed to do. One of 
 - Inserts a row into `Versions` with `link=<32-hex>` and the file path
 - Returns `{"result":"<32-hex>"}`
 
-### RMAP Endpoints Implemented
+##### Explanation of parameters:
+
+- `-u` – server base URL
+- `-i` – identity of the requesting group (must exist in /app/secrets/clients)
+- `-s` – server public key path
+- `-k` – client private key path
+- `-p` – passphrase for client key
+- `-o` – output path for resulting PDF
+
+These endpoints will handle secure client-server exchanges using OpenGPG via PYGPy to protect document identifiers and nonces
+
+#### Custom Watermarking (BetterEOF)
+
+While thinking about how I could create a custom watermarking technique, I analyzed the weaknesses of the sample watermarking approach Toy-EOF, which suffered from:
+
+- `Predictable data placement`
+- `Lack of obfuscation`
+- `No verification of ownership or document integrity`
+
+**Approach (BetterEOF) summary:**
+- **1.** It first reads the file and makes sure it starts with %PDF-. If not, it just stops right there since it isn’t a PDF file.
+- **2.** Find the last %%EOF and insert it before it. All valid PDF files end with a %%EOF marker, which means inserting it after is generally a really bad idea since many tools like converters, antivirus software, or even proxies remove anything after EOF because it’s flagged as junk; therefore, BetterEOF inserts it before.
+- **3.** It calculates a SHA256 hash of everything before the watermark — the head. This binds the watermark to that exact PDF file. If someone tries to change even just one byte, the hash will change, and the system will refuse to extract the watermark because the integrity check fails.
+- **4.** A MAC (Message Authentication Code) is created over:
+"wm2:v1:" + sha256(head) + nonce + ciphertext
+Which means the authentication covers both the document’s head and the encrypted watermark content. In simple terms, the MAC proves that the watermark belongs exactly to this PDF and hasn’t been tampered with.
+- **5.** The watermark payload (version, the head-hash, nonce, ciphertext, MAC, and so on) is put into a small JSON object using compact formatting, which is then base64url-encoded. The reason for this is because it keeps it short, predictable, and easy to parse.
+- **6.** The watermark is written in two lines. Line one is a magic header, which is easy to find when searching inside a file. Line two, however, is the actual encrypted and authenticated watermark. So why two lines? This makes reading, writing, and even detecting the watermark very easy while keeping it resistant to corruption.
 
 
 ## 3. PHASE III – Testing, Coverage, and Security Hardening.
