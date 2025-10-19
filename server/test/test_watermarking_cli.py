@@ -7,6 +7,7 @@ import builtins
 import types
 import pytest
 import watermarking_cli as cli
+import argparse
 
 
 # create a minimal pdf in a temp folder
@@ -189,5 +190,5 @@ def test_embed_and_extract_bettereof(tmp_path, capsys):
 def test_resolve_key_from_file(tmp_path):
     f = tmp_path / "key.txt"
     f.write_text("abc123\n")
-    args = argparse.Namespace(key=None, key_file=str(f), key_stdin=False)
-    assert _resolve_key(args) == "abc123"
+    args = types.SimpleNamespace(key=None, key_file=str(f), key_stdin=False)
+    assert cli._resolve_key(args) == "abc123"
