@@ -88,3 +88,86 @@ Which means the authentication covers both the document’s head and the encrypt
 
 
 ## 3. PHASE III – Testing, Coverage, and Security Hardening.
+This phase focused on unit testing, coverage measurement, and addressing identified security issues.
+
+Towards the end of phase two and the start of phase 3 a major security issue was exploited, which was because i forked the repo as opposed to cloning it. Due to this another group took advantage of this to find flag 1 and 2. This issue was quickly resolved by deleting the repo entirely and starting over from a private repo instead; this prevented others from reading future flags and learning how my watermarking worked.
+
+I chose mutation testing as my specialization. I had previous exposure to software testing in my bachelor’s program, but it wasn’t very effective. This time, mutation testing proved far more valuable. In hindsight, it should have been run before increasing coverage to get a true baseline, but it worked out well in the end.
+
+**Test Environment Setup**
+
+```ini
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -e ".[dev]"
+python -m pip install mutmut pytest-cov
+```
+
+**Test Environment Setup**
+
+```ini
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+. .\.venv\Scripts\Activate.ps1
+cd server
+& .venv\Scripts\python.exe -m pytest -q
+& .venv\Scripts\python.exe -m pytest --cov=src --cov-report=term-missing
+```
+
+#### Security Fixes
+Also, during this phase, I became aware of a few major security issues in the code that I addressed, such as
+
+
+**Issue 1**
+- **Description:** Other users could read watermark secrets of documents they did not own.
+- **Where:** server/src/server.py, function read_watermark
+- **Severity:** Very High (cross-user data leakage)
+- **Fix:** Enforce ownership in SQL lookups:
+
+```ini
+SELECT id, name, path FROM Documents
+WHERE id = :id AND ownerid = :uid
+```
+
+- **Proof of Concept:** See Appendix A.
+
+
+**Issue 1**
+- **Description:** Flag file /app/flag was world-readable inside the container.
+- **Where:** VRA container filesystem
+- **Severity:** Medium
+- **Fix:** Restrict file permissions and ownership:
+
+```ini
+docker compose exec server /bin/sh -lc \
+  'chmod 600 /app/flag && chown root:root /app/flag && stat -c "%U %G %a %n" /app/flag'
+```
+
+**Issue 1**
+- **Description:** Secrets directory on host was world-readable
+- **Where:** /secrets/ on VRA host
+- **Severity:** High
+- **Fix:** Lock down permissions:
+
+```ini
+sudo chown -R root:root ./secrets
+sudo chmod 755 ./secrets
+sudo chmod 600 ./secrets/server_priv.asc
+sudo chmod 644 ./secrets/server_pub.asc
+sudo chown -R root:root ./secrets/clients
+sudo chmod 755 ./secrets/clients
+```
+
+- **Proof of Concept:**
+
+```ini
+ls -ld ./secrets ./secrets/clients
+drwxr-xr-x 3 root root 4096 Oct  8 21:46 ./secrets
+drwxr-xr-x 2 root root 4096 Oct  9 18:57 ./secrets/clients
+
+ls -l ./secrets | sed -n '1,50p'
+total 12
+drwxr-xr-x 2 root root 4096 Oct  9 18:57 clients
+-rw------- 1 root root  878 Oct  8 21:46 server_priv.asc
+-rw-r--r-- 1 root root  652 Oct  8 21:46 server_pub.asc
+```
