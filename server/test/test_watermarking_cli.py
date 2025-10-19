@@ -192,3 +192,7 @@ def test_resolve_key_from_file(tmp_path):
     f.write_text("abc123\n")
     args = types.SimpleNamespace(key=None, key_file=str(f), key_stdin=False)
     assert cli._resolve_key(args) == "abc123"
+
+def test_invalid_pdf_error_message():
+    with pytest.raises(ValueError, match="%PDF"):
+        load_pdf_bytes(b"not a pdf")
