@@ -207,3 +207,9 @@ def test_rmap_missing_payload_raises():
     with flask.Flask(__name__).test_request_context(data=""):
         with pytest.raises(Exception, match="payload"):
             _read_payload_b64()
+
+def test_resolve_secret_from_file(tmp_path):
+    f = tmp_path / "secret.txt"
+    f.write_text("hidden123\n")
+    args = types.SimpleNamespace(secret=None, secret_file=str(f), secret_stdin=False)
+    assert cli._resolve_secret(args) == "hidden123\n"
