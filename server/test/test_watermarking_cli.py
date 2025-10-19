@@ -184,3 +184,10 @@ def test_embed_and_extract_bettereof(tmp_path, capsys):
     # Assert
     assert c2 == 0
     assert out == "hello"
+
+
+def test_resolve_key_from_file(tmp_path):
+    f = tmp_path / "key.txt"
+    f.write_text("abc123\n")
+    args = argparse.Namespace(key=None, key_file=str(f), key_stdin=False)
+    assert _resolve_key(args) == "abc123"
