@@ -15,6 +15,40 @@ For phase two there were a couple of main things we were supposed to do. One of 
 
 ### Phase two primarily focused on two main things:
 **1. Implementing a custom watermarking technique.**
+
 **2. Implementing two RMAP endpoints.**
+
+### RMAP Endpoints Implemented
+
+#### /api/rmap-initiate
+
+**Specifications given:**
+- Accepts base64(ASCII-armored PGP) as `payload`
+- Decrypt with server private key → JSON `{"nonceClient": <u64>, "identity": "<GroupName>"}`
+- Validate that `<GroupName>` has a public key present on disk.
+- Reply (encrypted to the client’s public key) with JSON `{"nonceClient": <u64>, "nonceServer": <u64>}` as a base64(ASCII-armored PGP) `payload`
+
+**Specifications given:**
+- Accepts base64(ASCII-armored PGP) as `payload`
+- Decrypt with server private key → JSON `{"nonceClient": <u64>, "identity": "<GroupName>"}`
+- Validate that `<GroupName>` has a public key present on disk.
+- Reply (encrypted to the client’s public key) with JSON `{"nonceClient": <u64>, "nonceServer": <u64>}` as a base64(ASCII-armored PGP) `payload`
+
+#### /api/rmap-get-link
+
+**Specifications given:**
+- Accepts base64(ASCII-armored PGP) `payload`
+- Decrypt → JSON `{"nonceServer": <u64>}`
+- On success, create a watermarked PDF with your best technique, store a DB row, and return a JSON link made from the RMAP session secret (in this project: `<32-hex> = NonceClient || NonceServer`)
+
+**What my code does:**
+- Reads and decrypts payload with `im.decrypt_for_server(...)`
+- Matches `nonceServer` to a pending session in `rmap.nonces` (prevents replay/garbage)
+- Calls `final = rmap.handle_message2({"payload": payload})` → yields `{"result": "<32-hex>"}`  
+- Looks up the source PDF by ID (`RMAP_SOURCE_DOC_ID`), resolves the storage path safely, and ensures the file exists
+- Watermarks using the configured “best” method (`RMAP_METHOD`, e.g., BetterEOF) and server key (`RMAP_WM_KEY`)
+- Saves the personalized PDF under `/watermarks/…__<Group>.pdf`
+- Inserts a row into `Versions` with `link=<32-hex>` and the file path
+- Returns `{"result":"<32-hex>"}`
 
 ## 3. PHASE III – Testing, Coverage, and Security Hardening.
