@@ -8,6 +8,8 @@ import types
 import pytest
 import watermarking_cli as cli
 import argparse
+from watermarking_method import load_pdf_bytes
+
 
 
 # create a minimal pdf in a temp folder
