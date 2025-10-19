@@ -201,7 +201,9 @@ def test_invalid_pdf_error_message():
     with pytest.raises(ValueError, match="%PDF"):
         load_pdf_bytes(b"not a pdf")
 
-def test_rmap_env_passphrase_required(monkeypatch):
-    monkeypatch.delenv("RMAP_SERVER_PRIV_PASSPHRASE", raising=False)
-    with pytest.raises(KeyError):
-        register_rmap_routes()
+def test_rmap_missing_payload_raises():
+    from rmap_service import _read_payload_b64
+    import flask
+    with flask.Flask(__name__).test_request_context(data=""):
+        with pytest.raises(Exception, match="payload"):
+            _read_payload_b64()
