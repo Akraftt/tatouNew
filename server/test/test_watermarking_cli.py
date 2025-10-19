@@ -9,6 +9,8 @@ import pytest
 import watermarking_cli as cli
 import argparse
 from watermarking_method import load_pdf_bytes
+from rmap_service import register_rmap_routes
+
 
 
 
@@ -198,3 +200,8 @@ def test_resolve_key_from_file(tmp_path):
 def test_invalid_pdf_error_message():
     with pytest.raises(ValueError, match="%PDF"):
         load_pdf_bytes(b"not a pdf")
+
+def test_rmap_env_passphrase_required(monkeypatch):
+    monkeypatch.delenv("RMAP_SERVER_PRIV_PASSPHRASE", raising=False)
+    with pytest.raises(KeyError):
+        register_rmap_routes()
