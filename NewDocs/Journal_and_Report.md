@@ -9,13 +9,22 @@ Overall, I feel proud of what I’ve accomplished as a sole member of my group. 
 
 --- 
 
-## 1. PHASE I – Warming Up.
+## Table of Contents
+
+- [PHASE I Warming Up](#PHASE-I-Warming-Up)
+- [PHASE II RMAP Endpoints and Watermarking.](#PHASE-II-RMAP-Endpoints-and-Watermarking.)
+- [PHASE III Testing Coverage and Security](#PHASE-III-Testing-Coverage-and-Security)
+- [Appendix A](#Appendix-A)
+
+--- 
+
+## PHASE I Warming Up
 
 For phase one, my primary goal was to become familiar with the codebase, environment, and workflow using Git and Docker. It had been a while since I used those two, so I took things rather slowly at first. I began by forking the repository, which was a mistake in hindsight, and then set up my Virtual Research Appliance (VRA) environment with Ubuntu, Python 3.12, and Docker Compose. After cloning, I verified that the core functionality worked as intended. This included confirming that the database was accessible and that the API endpoints functioned correctly. In hindsight, I should have verified these functionalities by writing tests instead of doing it manually. And, of course, the flags were inserted in their proper locations.
 
 --- 
 
-## 2. PHASE II – RMAP Endpoints and Watermarking.
+## PHASE II RMAP Endpoints and Watermarking.
 
 For phase two there were a couple of main things we were supposed to do. One of which was to create our own watermarking system and sequentially implement two RMAP endpoints which other groups on the same VLAN could access.
 
@@ -87,7 +96,7 @@ Which means the authentication covers both the document’s head and the encrypt
 - **6.** The watermark is written in two lines. Line one is a magic header, which is easy to find when searching inside a file. Line two, however, is the actual encrypted and authenticated watermark. So why two lines? This makes reading, writing, and even detecting the watermark very easy while keeping it resistant to corruption.
 
 
-## 3. PHASE III – Testing, Coverage, and Security Hardening.
+## PHASE III Testing Coverage and Security
 This phase focused on unit testing, coverage measurement, and addressing identified security issues.
 
 Towards the end of phase two and the start of phase 3 a major security issue was exploited, which was because i forked the repo as opposed to cloning it. Due to this another group took advantage of this to find flag 1 and 2. This issue was quickly resolved by deleting the repo entirely and starting over from a private repo instead; this prevented others from reading future flags and learning how my watermarking worked.
@@ -129,10 +138,10 @@ SELECT id, name, path FROM Documents
 WHERE id = :id AND ownerid = :uid
 ```
 
-- **Proof of Concept:** See Appendix A.
+- **Proof of Concept:** [Appendix A](#Appendix-A).
 
 
-**Issue 1**
+**Issue 2**
 - **Description:** Flag file /app/flag was world-readable inside the container.
 - **Where:** VRA container filesystem
 - **Severity:** Medium
@@ -143,7 +152,7 @@ docker compose exec server /bin/sh -lc \
   'chmod 600 /app/flag && chown root:root /app/flag && stat -c "%U %G %a %n" /app/flag'
 ```
 
-**Issue 1**
+**Issue 3**
 - **Description:** Secrets directory on host was world-readable
 - **Where:** /secrets/ on VRA host
 - **Severity:** High
@@ -170,4 +179,77 @@ total 12
 drwxr-xr-x 2 root root 4096 Oct  9 18:57 clients
 -rw------- 1 root root  878 Oct  8 21:46 server_priv.asc
 -rw-r--r-- 1 root root  652 Oct  8 21:46 server_pub.asc
+```
+
+#### Mutation Testing (Specialization)
+
+- **Tools:** mutmut (3.3.1), pytest, pytest-cov
+- **Iteration loop:** run pytest, then mutmut run, list survived, inspect with mutmut show, write minimal tests to kill interesting mutants, and repeat.
+- **Caches:** when mutmut cached a deleted file, runs failed until ./mutants and .mutmut-cache were removed.
+
+**Metrics progression (representative):**
+- **Killed:** 671 → 746
+- **Survived:** 973 → 923
+- **Incompetent (incomplete):** 84 → 58
+- **Timeouts / not-sure: unchanged:** 2
+
+
+## Appendix A
+
+### Create Two User
+
+**User: Alice**
+
+```ini
+$u1 = @{ email="alice@example.com"; login="alice"; password="alicepw" } | ConvertTo-Json
+$null = Invoke-RestMethod -Uri http://127.0.0.1:5000/api/create-user -Method POST -Body $u1 -ContentType "application/json"
+$u1login = @{ email="alice@example.com"; password="alicepw" } | ConvertTo-Json
+$u1tok = (Invoke-RestMethod -Uri http://127.0.0.1:5000/api/login -Method POST -Body $u1login -ContentType "application/json").token
+```
+
+**User: Bob**
+
+```ini
+$u2 = @{ email="bob@example.com"; login="bob"; password="bobpw" } | ConvertTo-Json
+$null = Invoke-RestMethod -Uri http://127.0.0.1:5000/api/create-user -Method POST -Body $u2 -ContentType "application/json"
+$u2login = @{ email="bob@example.com"; password="bobpw" } | ConvertTo-Json
+$u2tok = (Invoke-RestMethod -Uri http://127.0.0.1:5000/api/login -Method POST -Body $u2login -ContentType "application/json").token
+```
+
+### Create a PDF
+
+```ini
+[IO.File]::WriteAllBytes("$PWD\alice.pdf",[Convert]::FromBase64String("JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyA+PgplbmRvYmoKJSVFT0YK"))
+```
+
+### Upload PDF as Alice
+
+```ini
+$uri = "http://127.0.0.1:5000/api/upload-document"
+$hdr = "Authorization: Bearer $u1tok"
+$json = & curl.exe -s -H "$hdr" -F "file=@`"$PWD\alice.pdf`";type=application/pdf" -F "name=alice.pdf" $uri
+$docA = $json | ConvertFrom-Json
+$docId = [int]$docA.id
+```
+
+### Try to access as Bob → expect 404
+
+```ini
+$rwBody = @{ method="anton-eof"; key="course-demo-key"; position="" } | ConvertTo-Json
+try {
+  Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/read-watermark/$docId" -Method POST -Headers @{ Authorization = "Bearer $u2tok" } -Body $rwBody -ContentType "application/json"
+} catch {
+  $_.Exception.Response.StatusCode.value__       # expect 404
+  $_.ErrorDetails.Message                        # "document not found"
+}
+```
+
+### Try to access as Alice → expect 400
+
+```ini
+try {
+  Invoke-RestMethod -Uri "http://127.0.0.1:5000/api/read-watermark/$docId" -Method POST -Headers @{ Authorization = "Bearer $u1tok" } -Body $rwBody -ContentType "application/json"
+} catch {
+  $_.Exception.Response.StatusCode.value__       # expect 400
+}
 ```
