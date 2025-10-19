@@ -151,3 +151,5 @@ python3 server/src/watermarking_cli.py extract ~/Desktop/g26_self_wm.pdf \
 - `server_priv.asc` → 600, owned by root
 - `server_pub.asc` → 644, owned by root
 - `secrets/clients` → public keys for peers
+
+
