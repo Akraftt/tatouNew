@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
-# batch_rmap_fetch_custom.py
-# Lightweight RMAP batch fetcher (custom version for Group_26)
-# Minimal dependencies: requests, pgpy
+# auto_fetch.py — custom batch RMAP fetcher for Group_26
 
 from pathlib import Path
 import json, base64, secrets, time
 import requests
 from pgpy import PGPKey, PGPMessage
 
-# ======= configuration (edit for your group) =======
+# ======= CONFIG (edit if needed) =======
 MY_ID = "Group_26"                       # your identity
 CLIENT_PRIV = Path("/home/lab/Desktop/g26_private.asc")
-CLIENT_PASSPHRASE = "123"                # your private key passphrase (or None)
+CLIENT_PASSPHRASE = "123"                # or None
 
-PEER_PUB_DIR = Path("/home/lab/tatou_peer_pubs")  # where to cache fetched server_pub files
+PEER_PUB_DIR = Path("/home/lab/tatou_peer_pubs")   # cache peer server_pub.asc files here
 PEER_PUB_DIR.mkdir(parents=True, exist_ok=True)
 
-# candidate locations to try fetching server_pub.asc from the target
 PUB_PATHS = [
     "/server_pub.asc",
     "/keys/server_pub.asc",
@@ -32,7 +29,7 @@ SLEEP = 0.3
 DOWNLOAD_DIR = Path("./downloads_custom")
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# target list found from rmap
+# Only include IPs you actually want to hit
 TARGETS = [
     ("Group_08", "10.11.12.7"),
     ("Group_20", "10.11.12.9"),
@@ -43,7 +40,7 @@ TARGETS = [
     ("Group_20_alt", "10.11.12.20"),
 ]
 
-
+# ======= helpers =======
 def is_pubkey_blob(s: str) -> bool:
     return "BEGIN PGP PUBLIC KEY BLOCK" in s
 
@@ -52,8 +49,8 @@ def local_pub_path(name: str) -> Path:
 
 def try_fetch_peer_pub(ip: str, name: str) -> Path | None:
     base = f"http://{ip}:{PORT}"
-    for p in PUB_PATHS:
-        url = base + p
+    for rel in PUB_PATHS:
+        url = base + rel
         try:
             r = requests.get(url, timeout=TIMEOUT)
             if r.status_code == 200 and is_pubkey_blob(r.text):
@@ -87,6 +84,8 @@ def decrypt_from_peer(payload_any, priv_path: Path, passphrase: str | None):
         raise ValueError("unexpected payload type")
 
     payload = payload_any if isinstance(payload_any, str) else payload_any.decode("latin1", errors="ignore")
+
+    # tolerant: base64(armored) / armored / base64(binary)
     try:
         raw = base64.b64decode(payload, validate=False)
         try:
@@ -113,6 +112,7 @@ def post_with_retry(url, body):
             else:
                 raise
 
+# ======= main per-target flow =======
 def run_target(name: str, ip: str):
     print(f"\n=== {name} @ {ip} ===")
     server_pub = find_or_download_pub(name, ip)
@@ -124,6 +124,7 @@ def run_target(name: str, ip: str):
     init_routes = [f"{base}/api/rmap-initiate", f"{base}/rmap-initiate", f"{base}/initiate", f"{base}/api/rmap-initiate/"]
     getlink_routes = [f"{base}/api/rmap-get-link", f"{base}/rmap-get-link", f"{base}/get-link"]
 
+    # Step 1: C->S (nonceClient + identity) encrypted to peer’s server_pub
     nc = secrets.randbits(48)
     m1 = {"nonceClient": nc, "identity": MY_ID}
     payload1 = encrypt_for_peer(m1, server_pub)
@@ -141,7 +142,6 @@ def run_target(name: str, ip: str):
     if r1 is None or r1.status_code != 200:
         return {"group": name, "ip": ip, "ok": False, "reason": f"init_fail({r1.status_code if r1 else 'no_resp'})"}
 
-    # parse r1 payload
     try:
         d1 = r1.json()
     except Exception:
@@ -149,6 +149,7 @@ def run_target(name: str, ip: str):
     if "payload" not in d1:
         return {"group": name, "ip": ip, "ok": False, "reason": d1}
 
+    # Step 2: S->C decrypt with our private key
     try:
         resp1 = decrypt_from_peer(d1["payload"], CLIENT_PRIV, CLIENT_PASSPHRASE)
     except Exception as e:
@@ -158,6 +159,7 @@ def run_target(name: str, ip: str):
     if ns is None:
         return {"group": name, "ip": ip, "ok": False, "reason": "no_nonceServer"}
 
+    # Step 3: C->S send nonceServer back (encrypted to peer’s server_pub)
     m2 = {"nonceServer": int(ns)}
     payload2 = encrypt_for_peer(m2, server_pub)
 
@@ -180,6 +182,7 @@ def run_target(name: str, ip: str):
     except Exception:
         return {"group": name, "ip": ip, "ok": False, "reason": "bad_json_getlink"}
 
+    # Step 4: download PDF
     candidates = []
     if "url" in d2:
         candidates = [d2["url"]]
@@ -207,15 +210,21 @@ def main():
     print("custom batch fetch start")
     results = []
     for nm, ip in TARGETS:
-        res = run_target(nm, ip)
-        results.append(res)
+        results.append(run_target(nm, ip))
         time.sleep(0.2)
+
     import csv
     with open("batch_custom_results.csv", "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["group","ip","ok","file","reason"])
         writer.writeheader()
         for r in results:
-            writer.writerow({"group": r.get("group"), "ip": r.get("ip"), "ok": r.get("ok"), "file": r.get("file",""), "reason": r.get("reason","")})
+            writer.writerow({
+                "group": r.get("group"),
+                "ip": r.get("ip"),
+                "ok": r.get("ok"),
+                "file": r.get("file",""),
+                "reason": r.get("reason",""),
+            })
     print("done. results -> batch_custom_results.csv")
 
 if __name__ == "__main__":
