@@ -13,4 +13,7 @@ src/Tatou_Server.egg-info/entry_points.txt
 src/Tatou_Server.egg-info/requires.txt
 src/Tatou_Server.egg-info/top_level.txt
 test/test_api.py
+test/test_load_pdf_bytes.py
+test/test_registry.py
 test/test_watermarking_all_methods.py
+test/test_watermarking_cli.py
